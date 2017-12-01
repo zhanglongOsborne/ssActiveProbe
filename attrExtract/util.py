@@ -24,7 +24,20 @@ RE_220_FTP_READY = 0x04
 RE_421_TOO_MANY_CONN = 0x08
 RE_530_LOGIN = 0x10
 RE_SSH_VER = 0x20
+RE_QUIC = 0x40
+RE_PPTP = 0x80
+RE_TEAMVIEW = 0x0100
 
+# reply str type
+_400_bad_req_str = "400 Bad request"
+_421_too_many_conn = "421"
+_220_ftp_ready = "220"
+_530_ftp_login = "530"
+_ssl_alert = '\x15\x03\x01\x00\x02\x02\x46'
+_ssh_ver = 'ssh'
+_quic = r"(Handshake timeout expired)|(REJ)|(STK)|(SNO)|(PROF)|(SCFG)|(AEAD)|(SCID)|(PDMD)|(TBKP)|(PUBS)|(KEXS)|(OBIT)|(EXPY)|(RREJ)|(STTL)|(CSCT)|(CRT)"
+_pptp = r"\x1a\+<M"
+_teamview = r"(\x17\$\x11)|(\x11\x30\x36)"
 
 def get_pkt_time(pkt):
     return pkt.time
@@ -43,7 +56,7 @@ def analyse_reply_data(replystr):
     if "530" in replystr:
         ret = ret ^ RE_530_LOGIN
 
-    if len(replaystr)==7 and bytes(b'\x15\x03\x01\x00\x02\x02\x46') in replystr.decode('utf8'):
+    if '\x15\x03\x01\x00\x02\x02\x46' in replystr:
         #print chardet.detect(replaystr)
         ret = ret ^ RE_SSL_ALERT
     if "ssh" in replystr:
