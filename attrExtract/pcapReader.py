@@ -22,6 +22,7 @@ def read_pcap(pcap_dir):
 class StreamAttribute(object):
     def __init__(self, tuple_4):
         self.dns = ""
+        # tuple_4 format:srcIP,dstIP,srcPort,dstPort
         self.tuple_4 = tuple_4
         self.client_syn_time = invalid_time_stamp
         self.server_syn_ack_time = invalid_time_stamp
@@ -36,6 +37,10 @@ class StreamAttribute(object):
         self.is_rst = 0
         # rst_dir: c->s:0x01    s->c:0x10
         self.rst_dir = 0x00
+        self.rst_option = 0
+        self.rst_option_len = 0
+        self.rst_option_size = 0
+        self.rst_flag = 0
         self.is_fin = 0
         # fin_dir: c->s:0    s->c:1
         self.fin_dir = -1
@@ -50,8 +55,10 @@ class StreamAttribute(object):
         self.server_fin_client_rst = 0
         self.last_pkt_time = 0.0
 
+
+
+    # return type: 0:c->s   1:s->c
     def get_pkt_dir(self, pkt):
-        pkt_tuple4 = get_4_tuple(pkt)
         pkt_tuple4 = get_4_tuple(pkt)
         if pkt_tuple4[0] == self.tuple_4[0]:
             return 0
@@ -92,23 +99,32 @@ class StreamAttribute(object):
                     self.server_reply_time = pkt_time
                     self.server_reply_data = tcp.load
                     self.server_reply_type = analyse_reply_data(tcp.load)
+            #anlyse reset
             if tcp.flags & TCP_FLAG_R :
                 self.is_rst = 1
+                self.rst_flag = tcp.flags
+                # c->s
                 if self.get_pkt_dir(pkt) == 0:
                     self.rst_dir = self.rst_dir & 0x10 ^ 0x01
                     if self.is_fin == 1 and self.fin_dir == 1 :
                         self.server_fin_client_rst = 1
+                # s->c
                 else :
                     self.rst_dir = self.rst_dir & 0x01 ^ 0x10
                     if self.is_fin==1 and self.fin_dir == 0 :
                         self.client_fin_server_rst = 1
+                if hasattr(tcp,'option'):
+                    self.rst_option = 1
+                    self.rst_option_len,self.rst_option_size = analyse_tcp_option(tcp)
+            # tcp fin
             if tcp.flags & TCP_FLAG_F:
                 if self.is_fin == 0 :
                     self.is_fin = 1
                     self.fin_dir = self.get_pkt_dir(pkt)
                     self.fin_time = pkt_time
 
-        else:
+        elif UDP in pkt:
+            
             return
 
     def formate_write_file(self, fd):

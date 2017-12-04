@@ -47,20 +47,37 @@ def analyse_reply_data(replystr):
     ret = RE_OTHER
     replaystr = replystr.lower()
     #print chardet.detect(replaystr)
-    if "400 Bad request" in replystr:
+    if _400_bad_req_str in replystr:
         ret = ret ^ RE_400_BAD_REQ
-    if "421" in replystr:
+    if _421_too_many_conn in replystr:
         ret = ret ^ RE_421_TOO_MANY_CONN
-    if "220" in replystr:
+    if _220_ftp_ready in replystr:
         ret = ret ^ RE_220_FTP_READY
-    if "530" in replystr:
+    if _530_ftp_login in replystr:
         ret = ret ^ RE_530_LOGIN
 
-    if '\x15\x03\x01\x00\x02\x02\x46' in replystr:
+    if _ssl_alert in replystr:
         #print chardet.detect(replaystr)
         ret = ret ^ RE_SSL_ALERT
-    if "ssh" in replystr:
+    if _ssh_ver in replystr:
         ret = ret ^ RE_SSH_VER
+
+    import re
+    quic_pattern = re.compile(_quic,re.I)
+    match = quic_pattern.search(replystr)
+    if match :
+        ret = ret ^ RE_QUIC
+
+    pptp_pattern = re.compile(_pptp,re.I)
+    match = pptp_pattern.search(replystr)
+    if match :
+        ret = ret ^ RE_PPTP
+
+    teamview_pattern = re.compile(_teamview)
+    match = teamview_pattern.search(replystr)
+    if match :
+        ret = ret ^ RE_TEAMVIEW
+
 
     return ret
 
@@ -84,4 +101,13 @@ def get_4_tuple(pkt):
         else :
             return
         return tuple_4
+
+# analyse the tcp option
+def analyse_tcp_option(tcp):
+    if hasattr(tcp,options):
+        option_len = tcp.dataofs * 4 - 20
+        option_size = len(tcp.options)
+        return option_len,option_size
+    else:
+        return None
 
