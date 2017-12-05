@@ -24,8 +24,26 @@ class StreamAttribute(object):
         self.dns = ""
         # tuple_4 format:srcIP,dstIP,srcPort,dstPort
         self.tuple_4 = tuple_4
+
+        #these attribute is for tcp
         self.client_syn_time = invalid_time_stamp
         self.server_syn_ack_time = invalid_time_stamp
+        self.is_fin = 0
+        # fin_dir: c->s:0    s->c:1
+        self.fin_dir = -1
+        self.fin_time = 0.0
+        self.client_fin_server_rst = 0
+        self.server_fin_client_rst = 0
+        self.is_rst = 0
+        # rst_dir: c->s:0x01    s->c:0x10
+        self.rst_dir = 0x00
+        self.rst_option = 0
+        self.rst_option_len = 0
+        self.rst_option_size = 0
+        self.rst_flag = 0  # this is used to distinguish reset(reset and ack)
+
+        # these attribute is for tcp and udp
+        self.first_pkt_time = invalid_time_stamp
         self.client_data_send_time = invalid_time_stamp
         self.client_send_data_len = -1
         self.client_send_data = ""
@@ -34,26 +52,13 @@ class StreamAttribute(object):
         self.server_reply_time = invalid_time_stamp
         self.server_reply_type = RE_OTHER
         self.server_reply_data = ""
-        self.is_rst = 0
-        # rst_dir: c->s:0x01    s->c:0x10
-        self.rst_dir = 0x00
-        self.rst_option = 0
-        self.rst_option_len = 0
-        self.rst_option_size = 0
-        self.rst_flag = 0
-        self.is_fin = 0
-        # fin_dir: c->s:0    s->c:1
-        self.fin_dir = -1
-        self.fin_time = 0.0
         self.is_timeout = 0
         self.pkt_cnt = 0
         self.max_pkt_len = 0
         self.min_pkt_len = 0xffff
         self.ave_pkt_len = 0.0
         self.total_pkt_len = 0
-        self.client_fin_server_rst = 0
-        self.server_fin_client_rst = 0
-        self.last_pkt_time = 0.0
+        self.last_pkt_time = invalid_time_stamp
 
 
 
@@ -79,6 +84,8 @@ class StreamAttribute(object):
                 self.min_pkt_len = pkt_len
             if pkt_time > self.last_pkt_time:
                 self.last_pkt_time = pkt_time
+            if self.first_pkt_time == invalid_time_stamp or pkt_time < self.first_pkt_time:
+                self.first_pkt_time = pkt_time
 
 
             #print tcp.flags
@@ -124,17 +131,47 @@ class StreamAttribute(object):
                     self.fin_time = pkt_time
 
         elif UDP in pkt:
-            
+            udp = pkt[UDP]
+            self.pkt_cnt = self.pkt_cnt + 1
+            pkt_len = len(tcp)
+            pkt_time = get_pkt_time(pkt)
+            self.total_pkt_len = pkt_len + self.total_pkt_len
+            self.ave_pkt_len = self.total_pkt_len / self.pkt_cnt
+            if self.max_pkt_len < pkt_len:
+                self.max_pkt_len = pkt_len
+            if self.min_pkt_len > pkt_len:
+                self.min_pkt_len = pkt_len
+            if pkt_time > self.last_pkt_time:
+                self.last_pkt_time = pkt_time
+            if self.first_pkt_time == invalid_time_stamp or pkt_time < self.first_pkt_time:
+                self.first_pkt_time = pkt_time
+
+            if hasattr(udp,'load'):
+                if self.client_data_send_time == invalid_time_stamp:
+                    self.client_data_send_time = pkt_time
+                    self.client_data_send_len = len(udp.load)
+                    self.client_send_data = udp.load
+                else:
+                    self.is_server_reply = 1
+                    self.server_reply_data_len = len(udp.load)
+                    self.server_reply_time = pkt_time
+                    self.server_reply_data = udp.load
+                    self.server_reply_type = analyse_reply_data(udp.load)
+
             return
 
     def formate_write_file(self, fd):
         record = self.tuple_4[0] + "\t" + self.tuple_4[1] + "\t" + str(self.tuple_4[2]) + "\t" + str(self.tuple_4[3]) \
-                 + "\t" + str(self.client_syn_time) + "\t" + str(self.server_syn_ack_time) + "\t" + str(self.client_data_send_time) \
-                 + "\t" + str(self.client_send_data_len) + "\t" + str(self.is_server_reply) + "\t" + str(self.server_reply_data_len) \
-                 + "\t" + str(self.server_reply_time) + "\t" + str(self.server_reply_type) + "\t" + str(self.is_rst) \
-                + "\t" + str(self.rst_dir) + "\t" + str(self.is_fin) + "\t" + str(self.fin_dir) + "\t" + str(self.fin_time) \
-                + "\t" + str(self.is_timeout) + "\t" + str(self.pkt_cnt) + "\t" + str(self.max_pkt_len) + "\t" + str(self.min_pkt_len) \
-                + "\t" + str(self.ave_pkt_len) + "\t" + str(self.client_fin_server_rst) + "\t" + str(self.server_fin_client_rst)+"\t"+ self.dns+"\n"
+                 + "\t" + str(self.client_data_send_time - self.first_pkt_time) + "\t" + str(self.client_send_data_len) \
+                 +  "\t" + str(self.is_server_reply) + "\t" + str(self.server_reply_data_len) \
+                 + "\t" + str(self.server_reply_time - self.first_pkt_time) + "\t" + str(self.server_reply_type) + "\t" \
+                 + "\t" + str(self.is_timeout) + "\t" + str(self.pkt_cnt) + "\t" + str(self.max_pkt_len) + "\t" + str(self.min_pkt_len) \
+                 + "\t" + str(self.ave_pkt_len) + "\t" + str(self.last_pkt_time - self.first_pkt_time) \
+                 + "\t" + str(self.server_syn_ack_time - self.client_syn_time)  \
+                 + "\t" + str(self.is_fin) + "\t" + str(self.fin_dir) + "\t" + str(self.fin_time - self.client_syn_time) \
+                 + "\t" + str(self.is_rst) + "\t" + str(self.rst_dir) + "\t" + str(self.rst_option) \
+                 + "\t" + str(self.rst_option_size) + "\t" + str(self.rst_option_len) + "\t" + str(self.rst_flag) + "\n"
+
         fd.write(record)
 
 
@@ -154,14 +191,22 @@ def extract_attr_from_pcap(pcap_dir,out_dir,dns_str):
         elif streams.has_key(key2):
             streams[key2].extract_attr_from_pkt(pkt)
         else:
-            tcp = pkt[TCP]
-            if tcp.flags == TCP_FLAG_S:
+            if TCP in pkt:
+                tcp = pkt[TCP]
+                if tcp.flags == TCP_FLAG_S:
+                    new_stream_attr = StreamAttribute(tuple4)
+                    streams[key1] = new_stream_attr
+                    new_stream_attr.dns = dns_str
+                    new_stream_attr.extract_attr_from_pkt(pkt)
+                else:
+                    left_pkts.append(pkt)
+            elif UDP in pkt:
+                udp = pkt[udp]
                 new_stream_attr = StreamAttribute(tuple4)
                 streams[key1] = new_stream_attr
                 new_stream_attr.dns = dns_str
                 new_stream_attr.extract_attr_from_pkt(pkt)
-            else:
-                left_pkts.append(pkt)
+
 
     for pkt in left_pkts:
         tuple4 = get_4_tuple(pkt)
